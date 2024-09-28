@@ -13,7 +13,7 @@ const Login = () => {
 
     const formData = { username, password };
 
-    fetch('http://localhost:3000/login', {
+    fetch('http://localhost:3008/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -29,9 +29,9 @@ const Login = () => {
             icon: 'success',
             button: 'Proceed!',
           }).then(() => {
-            localStorage.setItem('user_id', data.id); // Save user_id instead of token
-            localStorage.setItem('wallet', data.wallet); // Optionally store the wallet balance
-            navigate('/spinwheel'); // Redirect to spinwheel page
+            localStorage.setItem('user_id', data.id);
+            localStorage.setItem('wallet', data.wallet);
+            navigate('/home');
           });
         } else {
           swal({
@@ -54,9 +54,9 @@ const Login = () => {
   };
 
   return (
-    <div className="login-container d-flex align-items-center justify-content-center min-vh-100">
-      <div className="card p-4 shadow-lg" style={{ maxWidth: '400px', width: '100%' }}>
-        <h3 className="text-center mb-4">Login</h3>
+    <div className="login-container">
+      <div className="card">
+        <h3 className="text-center">Login</h3>
         <form onSubmit={handleLogin}>
           <div className="mb-3">
             <label htmlFor="usernameField" className="form-label">Username</label>
@@ -77,7 +77,14 @@ const Login = () => {
             />
           </div>
           <button type="submit" className="btn btn-primary w-100">Submit</button>
+          
         </form>
+        <div className="mt-3 text-center">
+          <span>Dont have an account? </span>
+          <button className="btn btn-link p-0" onClick={() => navigate('/register')}>
+            Register
+          </button>
+        </div>
       </div>
     </div>
   );

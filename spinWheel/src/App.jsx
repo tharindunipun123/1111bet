@@ -10,9 +10,9 @@ import Login from './components/loginCmp';
 
 
 function App() {
- 
+ //basename="/wheel"
   return (
-     <BrowserRouter>
+     <BrowserRouter >
     <Routes>
     <Route path="/" element={<Login/>}> </Route>
     <Route path="/home" element={<HomePage/>}> </Route>

@@ -1,7 +1,15 @@
 import React from 'react';
 import './HomePage.css'; // Import the CSS for the component
-
+import { useNavigate } from 'react-router-dom';
 function HomePage() {
+
+  const navigate = useNavigate(); // Declare the navigate function
+
+  const handleNavigate = () => {
+    navigate('/spinwheel'); // Navigate to the SpinWheel game route
+  };
+
+
   return (
     <div className="homepage">
       {/* Header Section */}
@@ -26,31 +34,40 @@ function HomePage() {
           </p>
         </div>
         <div className="hero-image">
-          <img src="https://image.freepik.com/free-vector/realistic-3d-spinning-fortune-wheel-lucky-roulette_8829-97.jpg" alt="Slot Machine" />
+          <img src=""  />
         </div>
       </section>
 
-       {/* Benefits Section */}
-       <section className="benefits">
-        <h2>Fun and Win Money</h2>
-        <p>
-          Contrary to popular belief, Lorem Ipsum is not simply random text.
-        </p>
-        <div className="benefit-cards">
-          <div className="card">
-            <img src="https://th.bing.com/th/id/OIP.JMBZpnj_nyzacT-HPyKzegAAAA?w=338&h=338&rs=1&pid=ImgDetMain" alt="Benefit 1" className="card-image" />
-            <p>Benefit 1 Description</p>
-          </div>
-          <div className="card">
-            <img src="https://th.bing.com/th/id/OIP.JMBZpnj_nyzacT-HPyKzegAAAA?w=338&h=338&rs=1&pid=ImgDetMain" alt="Benefit 2" className="card-image" />
-            <p>Benefit 2 Description</p>
-          </div>
-          <div className="card">
-            <img src="https://th.bing.com/th/id/OIP.JMBZpnj_nyzacT-HPyKzegAAAA?w=338&h=338&rs=1&pid=ImgDetMain" alt="Benefit 3" className="card-image" />
-            <p>Benefit 3 Description</p>
-          </div>
-        </div>
-      </section>
+<section className="benefits" id="benefits">
+  <h2>Fun and Win Money</h2>
+  <p>Contrary to popular belief, Lorem Ipsum is not simply random text.</p>
+  <div className="benefit-cards">
+    <div className="card" onClick={handleNavigate}>
+      <img
+        src="https://th.bing.com/th/id/OIP.JMBZpnj_nyzacT-HPyKzegAAAA?w=338&h=338&rs=1&pid=ImgDetMain"
+        alt="Benefit 1"
+        className="card-image"
+      />
+      <p>Spin Wheeel Game </p>
+    </div>
+    <div className="card">
+      <img
+        src="https://th.bing.com/th/id/OIP.JMBZpnj_nyzacT-HPyKzegAAAA?w=338&h=338&rs=1&pid=ImgDetMain"
+        alt="Benefit 2"
+        className="card-image"
+      />
+      <p>Benefit 2 Description</p>
+    </div>
+    <div className="card">
+      <img
+        src="https://th.bing.com/th/id/OIP.JMBZpnj_nyzacT-HPyKzegAAAA?w=338&h=338&rs=1&pid=ImgDetMain"
+        alt="Benefit 3"
+        className="card-image"
+      />
+      <p>Benefit 3 Description</p>
+    </div>
+  </div>
+</section>
 
     
       {/* Footer Section

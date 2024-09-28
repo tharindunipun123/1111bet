@@ -18,7 +18,7 @@ const Register = () => {
     };
 
     // Call the backend API to register a new user
-    fetch('http://localhost:3000/register', {
+    fetch('http://localhost:3008/register', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -34,7 +34,7 @@ const Register = () => {
             icon: 'success',
             button: 'Go to Login',
           }).then(() => {
-            navigate('/login'); // Redirect to login page after successful registration
+            navigate('/'); // Redirect to login page after successful registration
           });
         } else {
           swal({
@@ -83,7 +83,7 @@ const Register = () => {
         </form>
         <div className="mt-3 text-center">
           <span>Already have an account? </span>
-          <button className="btn btn-link p-0" onClick={() => navigate('/login')}>
+          <button className="btn btn-link p-0" onClick={() => navigate('/')}>
             Login
           </button>
         </div>

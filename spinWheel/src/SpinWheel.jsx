@@ -1,146 +1,176 @@
-import React, { useState,useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Wheel } from 'react-custom-roulette';
+import io from 'socket.io-client';
+import swal from 'sweetalert';
+
+const socket = io('http://localhost:3008'); // Replace with your server URL
 
 // Define the wheel segments and styles
 const data = [
-  { option: 'Option 1', style: { backgroundColor: 'red', textColor: 'white' } },
-  { option: 'Option 2', style: { backgroundColor: 'blue', textColor: 'white' } },
-  { option: 'Option 3', style: { backgroundColor: 'green', textColor: 'white' } },
-  { option: 'Option 4', style: { backgroundColor: 'yellow', textColor: 'black' } },
-  { option: 'Option 5', style: { backgroundColor: 'purple', textColor: 'white' } },
-  { option: 'Option 6', style: { backgroundColor: 'orange', textColor: 'black' } },
-  { option: 'Option 1', style: { backgroundColor: 'red', textColor: 'white' } },
-  { option: 'Option 2', style: { backgroundColor: 'blue', textColor: 'white' } },
-  { option: 'Option 3', style: { backgroundColor: 'green', textColor: 'white' } },
-  { option: 'Option 4', style: { backgroundColor: 'yellow', textColor: 'black' } },
-  { option: 'Option 5', style: { backgroundColor: 'purple', textColor: 'white' } },
-  { option: 'Option 6', style: { backgroundColor: 'orange', textColor: 'black' } },
+  { option: '2x', style: { backgroundColor: 'red', textColor: 'white' } },
+  { option: '4x', style: { backgroundColor: 'blue', textColor: 'white' } },
+  { option: '5x', style: { backgroundColor: 'green', textColor: 'white' } },
+  { option: '7x', style: { backgroundColor: 'yellow', textColor: 'black' } },
+  { option: '10x', style: { backgroundColor: 'purple', textColor: 'white' } },
+  { option: '20x', style: { backgroundColor: 'orange', textColor: 'black' } },
+  { option: '2x', style: { backgroundColor: 'red', textColor: 'white' } },
+  { option: '4x', style: { backgroundColor: 'blue', textColor: 'white' } },
+  { option: '5x', style: { backgroundColor: 'green', textColor: 'white' } },
+  { option: '7x', style: { backgroundColor: 'yellow', textColor: 'black' } },
+  { option: '10x', style: { backgroundColor: 'purple', textColor: 'white' } },
+  { option: '20x', style: { backgroundColor: 'orange', textColor: 'black' } },
 ];
 
-// Betting button colors corresponding to wheel segments
-const betColors = ['red', 'blue', 'green', 'yellow', 'purple', 'orange'];
+const multipliers = [2, 4, 5, 7, 10, 20];
 
 const SpinWheel = () => {
   const [mustSpin, setMustSpin] = useState(false);
   const [prizeNumber, setPrizeNumber] = useState(0);
-  const [walletAmount, setWalletAmount] = useState(0); // Starting wallet amount
-  const [results, setResults] = useState([]); // Store results of each round
-  const [betColor, setBetColor] = useState(null); // Track user's bet
+  const [walletAmount, setWalletAmount] = useState(0);
+  const [results, setResults] = useState([]);
   const [betAmount, setBetAmount] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState(60);
-  const [isBettingEnabled, setIsBettingEnabled] = useState(true); // To control betting during spin
+  const [isBettingEnabled, setIsBettingEnabled] = useState(true);
+  const [currentRoundId, setCurrentRoundId] = useState(0);
   const userId = localStorage.getItem('user_id');
-
 
   useEffect(() => {
     fetchWallet();
-   
-    const interval = setInterval(fetchWallet, 1000); // Update time every second
 
-    return () => clearInterval(interval); // Cleanup interval on unmount
+    socket.on('newRound', handleNewRound);
+    socket.on('roundResult', handleRoundResult);
+    socket.on('betResponse', handleBetResponse);
+
+    return () => {
+      socket.off('newRound');
+      socket.off('roundResult');
+      socket.off('betResponse');
+    };
   }, []);
 
-  // Fetch wallet balance
   const fetchWallet = () => {
-    fetch(`http://localhost:3000/wallet?user_id=${userId}`)
-      .then(response => response.json())
-      .then(data => setWalletAmount(data.wallet))
-      .catch(error => console.error('Error fetching wallet:', error));
+    fetch(`http://localhost:3008/wallet?user_id=${userId}`)
+      .then((response) => response.json())
+      .then((data) => setWalletAmount(data.wallet))
+      .catch((error) => console.error('Error fetching wallet:', error));
   };
 
-  // Fetch time remaining from the server
-  const fetchTimeRemaining = () => {
-    fetch('http://localhost:3000/time-remaining')
-      .then(response => response.json())
-      .then(data => {
-        const timeLeft = Math.floor(data.timeRemaining / 1000);
-        setTimeRemaining(timeLeft);
-
-        if (timeLeft <= 0) {
-          handleSpinClick(); // Start spinning when time reaches zero
-        }
-      })
-      .catch(error => console.error('Error fetching time remaining:', error));
+  const handleNewRound = (data) => {
+    setCurrentRoundId(data.roundId);
+    setTimeRemaining(data.timeRemaining);
+    setIsBettingEnabled(true);
+    setMustSpin(false);
   };
 
-
-
-  // Function to handle the spin action
-  const handleSpinClick = () => {
-    const winningIndex = 0; // Random winning index
+  const handleRoundResult = (data) => {
+    const winningIndex = multipliers.indexOf(data.winningMultiplier);
     setPrizeNumber(winningIndex);
     setMustSpin(true);
+
+    const userBet = data.bets.find(bet => bet.user_id === parseInt(userId));
+    if (userBet) {
+      const won = userBet.bet_multiplier === data.winningMultiplier;
+      const winAmount = won ? userBet.bet_amount * data.winningMultiplier : 0;
+
+      swal({
+        title: won ? "Congratulations!" : "Better luck next time!",
+        text: `Round ${data.roundId} result:
+               Winning multiplier: ${data.winningMultiplier}x
+               Your bet: ${userBet.bet_amount} coins on ${userBet.bet_multiplier}x
+               ${won ? `You won ${winAmount} coins!` : "You lost your bet."}`,
+        icon: won ? "success" : "info",
+      }).then(() => {
+        fetchWallet();
+      });
+    }
+
+    setResults(prevResults => [
+      { roundId: data.roundId, multiplier: data.winningMultiplier },
+      ...prevResults.slice(0, 9)
+    ]);
   };
 
-  // Function to handle the betting action
-  const handleBetClick = (color) => {
-    setBetColor(color);
+  const handleBetResponse = (response) => {
+    if (response.success) {
+      swal('Bet Placed', `You bet ${betAmount} coins on ${response.multiplier}x`, 'success');
+      setBetAmount(0);
+      fetchWallet();
+    } else {
+      swal('Error', response.message, 'error');
+    }
   };
 
-  // Function to handle spin completion
-  const handleSpinComplete = () => {
-    setMustSpin(false);
-    const winningColor = data[prizeNumber].style.backgroundColor;
-    let winAmount = 0;
+  const handleBetClick = (multiplier) => {
+    if (isBettingEnabled && betAmount > 0 && walletAmount >= betAmount) {
+      socket.emit('placeBet', {
+        user_id: userId,
+        bet_amount: betAmount,
+        multiplier,
+      });
+    } else {
+      swal('Error', 'Invalid bet amount or insufficient balance.', 'error');
+    }
+  };
 
-    // // Check if the user's bet color matches the winning color
-    // if (betColor === winningColor) {
-    //   winAmount = 100 * 2; // Example: Bet multiplies by 2
-    //   setWalletAmount(walletAmount + winAmount);
-    // } else {
-    //   winAmount = -100; // Deduct amount if the bet is lost
-    //   setWalletAmount(walletAmount + winAmount);
-    // }
-
-    // Update results table
-    setResults([...results, { color: winningColor, winAmount }]);
-    setBetColor(null); 
+  const handleBetAmountChange = (e) => {
+    const value = Number(e.target.value);
+    if (isBettingEnabled) {
+      setBetAmount(value);
+    }
   };
 
   return (
     <div style={styles.container}>
       <div style={styles.wallet}>
-        <img src="https://img.icons8.com/emoji/48/000000/coin-emoji.png" alt="coin" style={{ marginRight: '8px' }} />
+        <img
+          src="https://img.icons8.com/emoji/48/000000/coin-emoji.png"
+          alt="coin"
+          style={{ marginRight: '8px' }}
+        />
         {walletAmount} Coins
       </div>
-      
-     
 
       <div style={styles.mainContent}>
-        {/* Spin Wheel */}
         <div style={styles.wheelContainer}>
           <Wheel
             mustStartSpinning={mustSpin}
             prizeNumber={prizeNumber}
             data={data}
-            onStopSpinning={handleSpinComplete}
+            onStopSpinning={() => setMustSpin(false)}
           />
-          <button onClick={handleSpinClick} style={styles.spinButton}>
-            Spin the Wheel
-          </button>
+          <h3 style={{ color: 'white' }}>Time Remaining: {timeRemaining} seconds</h3>
 
-          {/* Betting Buttons */}
+          <div className="bet-amount mt-4 text-center">
+            <input
+              type="number"
+              className="form-control mb-2"
+              placeholder="Enter bet amount"
+              value={betAmount}
+              onChange={handleBetAmountChange}
+              disabled={!isBettingEnabled}
+            />
+          </div>
+
           <div style={styles.betContainer}>
-            {betColors.map((color, index) => (
+            {multipliers.map((multiplier, index) => (
               <button
                 key={index}
-                style={{ ...styles.betButton, backgroundColor: color }}
-                onClick={() => handleBetClick(color)}
+                style={{ ...styles.betButton, opacity: isBettingEnabled ? 1 : 0.5 }}
+                onClick={() => handleBetClick(multiplier)}
+                disabled={!isBettingEnabled}
               >
-                Bet {color}
+                Bet {multiplier}x
               </button>
             ))}
           </div>
         </div>
 
-        {/* Results Table */}
         <div style={styles.resultsContainer}>
           <h3>Results</h3>
           <ul style={styles.resultsList}>
             {results.map((result, index) => (
               <li key={index} style={styles.resultItem}>
-                <span style={{ backgroundColor: result.color, ...styles.resultColor }}></span>
-                {result.color} - {result.winAmount > 0 ? `+${result.winAmount}` : result.winAmount} Coins
+                Round {result.roundId}: {result.multiplier}x
               </li>
             ))}
           </ul>
@@ -181,18 +211,6 @@ const styles = {
     flexDirection: 'column',
     alignItems: 'center',
   },
-  spinButton: {
-    marginTop: '20px',
-    padding: '10px 30px',
-    fontSize: '18px',
-    borderRadius: '12px',
-    background: 'linear-gradient(135deg, #ff416c, #ff4b2b)',
-    color: '#fff',
-    border: 'none',
-    cursor: 'pointer',
-    boxShadow: '0px 4px 15px rgba(0,0,0,0.2)',
-    transition: 'transform 0.2s',
-  },
   betContainer: {
     display: 'flex',
     justifyContent: 'center',
@@ -205,6 +223,7 @@ const styles = {
     fontSize: '16px',
     borderRadius: '8px',
     color: '#fff',
+    backgroundColor: '#219EBC',
     border: 'none',
     cursor: 'pointer',
     boxShadow: '0px 4px 15px rgba(0,0,0,0.2)',
@@ -224,13 +243,8 @@ const styles = {
   resultItem: {
     marginBottom: '8px',
   },
-  resultColor: {
-    display: 'inline-block',
-    width: '20px',
-    height: '20px',
-    borderRadius: '50%',
-    marginRight: '8px',
-  },
 };
+
+// Styles remain the same as in your original code
 
 export default SpinWheel;
