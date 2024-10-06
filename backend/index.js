@@ -28,90 +28,117 @@ const db = mysql.createPool({
   queueLimit: 0
 });
 
+
+
+
+
+
+
+
 // Global variables
 let currentRoundId = 0;
+let currentRoundNumber = 1; // This variable keeps track of the current round number
 const multipliers = [2, 4, 5, 7, 10, 20];
 let roundTimer;
+let timeRemaining = 60;
+const spinDuration = 12; // Spin duration is 12 seconds for animation
 
-// Helper function to start a new round
+// Function to start a new round
 async function startNewRound() {
   try {
-    const [result] = await db.query('INSERT INTO rounds (round_time) VALUES (NOW())');
+    // Insert a new round into the rounds table with the round number and timestamp
+    const [result] = await db.query('INSERT INTO rounds (round, update_time) VALUES (?, NOW())', [currentRoundNumber]);
     currentRoundId = result.insertId;
     console.log(`New round started: ${currentRoundId}`);
-    io.emit('newRound', { roundId: currentRoundId, timeRemaining: 60 });
+    io.emit('newRound', { roundId: currentRoundId, roundNumber: currentRoundNumber, timeRemaining: 60 });
 
-    // Set timer for 60 seconds
-    clearTimeout(roundTimer);
-    roundTimer = setTimeout(endRound, 60000);
+    // Reset timer for new round
+    timeRemaining = 60;
+    clearInterval(roundTimer);
+    roundTimer = setInterval(() => {
+      timeRemaining--;
+      io.emit('timeUpdate', timeRemaining); // Emit the time update to frontend
+      if (timeRemaining <= 0) {
+        clearInterval(roundTimer);
+        endRound(); // End the round and determine the winner
+      }
+    }, 1000);
   } catch (error) {
     console.error('Error starting new round:', error);
   }
 }
 
-// Helper function to end the current round
+// Function to end the current round and calculate results
 async function endRound() {
   try {
-    const [bets] = await db.query('SELECT bet_multiplier FROM bets WHERE round_id = ?', [currentRoundId]);
+    // Fetch all bets for the current round
+    const [bets] = await db.query('SELECT userId, multiplier, amount FROM betting_results WHERE round = ?', [currentRoundNumber]);
     
-    let winning_multiplier;
+    // Determine the winning multiplier
+    let winningMultiplier;
     if (bets.length > 0) {
-      winning_multiplier = Math.min(...bets.map(bet => bet.bet_multiplier));
+      // Choose a random multiplier from the predefined list if bets exist
+      winningMultiplier = multipliers[Math.floor(Math.random() * multipliers.length)];
     } else {
-      winning_multiplier = [7, 10, 20][Math.floor(Math.random() * 3)];
+      // If no bets, choose from a limited set of multipliers
+      winningMultiplier = [7, 10, 20][Math.floor(Math.random() * 3)];
     }
+     
+    const [result] = await db.query('INSERT INTO rounds (round, update_time, winning_multiplier) VALUES (?, NOW(), ?)', [currentRoundNumber, winningMultiplier]);
+    // Emit to frontend that the wheel should start spinning
+    io.emit('spinWheel', { winningMultiplier });
 
-    await db.query('UPDATE rounds SET winning_multiplier = ? WHERE id = ?', [winning_multiplier, currentRoundId]);
+    // Delay for the spin duration before calculating results
+    setTimeout(async () => {
+      const results = [];
 
-    const [roundBets] = await db.query('SELECT user_id, bet_amount, bet_multiplier FROM bets WHERE round_id = ?', [currentRoundId]);
-    for (const bet of roundBets) {
-      const winAmount = bet.bet_multiplier === winning_multiplier ? bet.bet_amount * winning_multiplier : 0;
-      await db.query('UPDATE users SET wallet = wallet + ? WHERE id = ?', [winAmount, bet.user_id]);
-    }
+      for (const bet of bets) {
+        // Calculate winnings based on whether the user bet on the winning multiplier
+        const winAmount = bet.multiplier === winningMultiplier ? bet.amount * winningMultiplier : 0;
+        // Update user's wallet with the winnings
+        if (winAmount > 0) {
+          await db.query('UPDATE users SET wallet = wallet + ? WHERE id = ?', [winAmount, bet.userId]);
+        }
+        results.push({ userId: bet.userId, betAmount: bet.amount, winAmount });
+      }
 
-    io.emit('roundResult', { roundId: currentRoundId, winningMultiplier: winning_multiplier, bets: roundBets });
+      // Emit results to all connected clients
+      io.emit('roundResult', { roundId: currentRoundId, winningMultiplier, results });
 
-    // Start a new round
-    startNewRound();
+      // Increment round number and start a new round after spin duration
+      currentRoundNumber += 1;
+      setTimeout(startNewRound, spinDuration * 1000);
+    }, spinDuration * 1000);
   } catch (error) {
     console.error('Error ending round:', error);
   }
 }
 
+
 // Start the first round when the server starts
 startNewRound();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log('New client connected');
-
-  socket.on('placeBet', async (data) => {
-    const { user_id, bet_amount, multiplier } = data;
-
-    if (!multipliers.includes(Number(multiplier))) {
-      socket.emit('betResponse', { success: false, message: 'Invalid multiplier' });
-      return;
-    }
-
-    try {
-      const [users] = await db.query('SELECT wallet FROM users WHERE id = ?', [user_id]);
-      if (users.length === 0 || users[0].wallet < bet_amount) {
-        socket.emit('betResponse', { success: false, message: 'Insufficient funds' });
-        return;
-      }
-
-      await db.query('UPDATE users SET wallet = wallet - ? WHERE id = ?', [bet_amount, user_id]);
-      await db.query(
-        'INSERT INTO bets (user_id, round_id, bet_amount, bet_multiplier) VALUES (?, ?, ?, ?)',
-        [user_id, currentRoundId, bet_amount, multiplier]
-      );
-
-      socket.emit('betResponse', { success: true, message: 'Bet placed successfully', round_id: currentRoundId });
-    } catch (error) {
-      console.error('Error placing bet:', error);
-      socket.emit('betResponse', { success: false, message: 'Error placing bet' });
-    }
-  });
 
   socket.on('disconnect', () => {
     console.log('Client disconnected');
@@ -161,6 +188,82 @@ app.get('/wallet', async (req, res) => {
     res.status(500).json({ message: 'Error fetching wallet balance' });
   }
 });
+
+
+
+app.post('/bet', async (req, res) => {
+  const { userId, betAmount, multiplier } = req.body;
+  var round1 = 0;
+  try {
+    // Step 1: Get user wallet balance
+    const [userRows] = await db.query('SELECT wallet FROM users WHERE id = ?', [userId]);
+    if (userRows.length === 0) return res.status(404).json({ message: 'User not found' });
+
+    const userWallet = userRows[0].wallet;
+
+    // Check if wallet has enough balance
+    if (userWallet < betAmount) {
+      return res.status(400).json({ message: 'Insufficient wallet balance' });
+    }
+
+    // Step 2: Deduct the bet amount from the user's wallet
+    const newWalletBalance = userWallet - betAmount;
+    await db.query('UPDATE users SET wallet = ? WHERE id = ?', [newWalletBalance, userId]);
+
+    // Step 3: Record the bet in betting_results table
+    await db.query(
+      'INSERT INTO betting_results (userId, round, multiplier, amount) VALUES (?, ?, ?, ?)',
+      [userId, currentRoundNumber, multiplier, betAmount]
+    );
+
+    // Step 4: Return the response
+    res.status(200).json({ message: 'Bet placed successfully', newWalletBalance });
+  } catch (error) {
+    console.error('Error placing bet:', error);
+    res.status(500).json({ message: 'An error occurred while placing the bet' });
+  }
+});
+
+
+
+// New endpoint to check if the user has won or lost
+app.get('/check-bet-result/:userId/:roundId', async (req, res) => {
+  const { userId, roundId } = req.params;
+
+  try {
+    // Fetch user's bet for the specified round
+    const [userBet] = await db.query('SELECT multiplier, amount FROM betting_results WHERE userId = ? AND round = ?', [userId, roundId]);
+    console.log(roundId);
+    // If the user has not placed a bet for that round, return no bet
+    if (!userBet) {
+      return res.json({ message: 'No bet placed for this round.' });
+    }
+
+    // Fetch the winning multiplier for the specified round
+    const [roundDetails] = await db.query('SELECT winning_multiplier FROM rounds WHERE id = ?', [roundId]);
+
+    // If round details are not found, return an error
+    if (!roundDetails) {
+      return res.status(404).json({ message: 'Round not found.' });
+    }
+
+    const winningMultiplier = roundDetails.winning_multiplier;
+    const userMultiplier = userBet.multiplier;
+
+    // Determine if user won or lost
+    if (userMultiplier === winningMultiplier) {
+      return res.json({ message: 'win', multiplier: winningMultiplier });
+    } else {
+      return res.json({ message: 'loss', multiplier: winningMultiplier });
+    }
+  } catch (error) {
+    console.error('Error checking bet result:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+
+
 
 const PORT = process.env.PORT || 3008;
 server.listen(PORT, () => {
