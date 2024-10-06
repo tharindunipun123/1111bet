@@ -67,15 +67,25 @@ async function endRound() {
   try {
     // Fetch all bets for the current round
     const [bets] = await db.query('SELECT userId, multiplier, amount FROM betting_results WHERE round = ?', [currentRoundNumber]);
-    
+    const [roundNumbers] = await db.query('SELECT round_number FROM manual_set ORDER BY id DESC LIMIT 1');
     // Determine the winning multiplier
     let winningMultiplier;
-    if (bets.length > 0) {
-      // Choose a random multiplier from the predefined list if bets exist
-      winningMultiplier = multipliers[Math.floor(Math.random() * multipliers.length)];
+    if (roundNumbers.length > 0) {
+      // Use the round number from the table
+      winningMultiplier = roundNumbers[0].round_number;
+      
     } else {
-      // If no bets, choose from a limited set of multipliers
-      winningMultiplier = [7, 10, 20][Math.floor(Math.random() * 3)];
+      // Fetch all bets for the current round
+      const [bets] = await db.query('SELECT userId, multiplier, amount FROM betting_results WHERE round = ?', [currentRoundNumber]);
+      
+      // Determine the winning multiplier
+      if (bets.length > 0) {
+        // Choose a random multiplier from the predefined list if bets exist
+        winningMultiplier = multipliers[Math.floor(Math.random() * multipliers.length)];
+      } else {
+        // If no bets, choose from a limited set of multipliers
+        winningMultiplier = [7, 10, 20][Math.floor(Math.random() * 3)];
+      }
     }
 
     console.log(`Winning multiplier for round ${currentRoundNumber}: ${winningMultiplier}`);
@@ -96,6 +106,7 @@ async function endRound() {
         // Update user's wallet with the winnings
         if (winAmount > 0) {
           await db.query('UPDATE users SET wallet = wallet + ? WHERE id = ?', [winAmount, bet.userId]);
+          await db.query('INSERT INTO win_history (user_id, round_number,winning_multiplier,win_amount) VALUES (?,?,?,?)', [bet.userId,currentRoundNumber,winningMultiplier,winAmount]);
         }
         results.push({ userId: bet.userId, betAmount: bet.amount, winAmount });
       }

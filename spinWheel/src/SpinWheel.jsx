@@ -196,169 +196,99 @@ const SpinWheel = () => {
   };
 
   return (
-    <div className="container">
-    {/* Wallet Section */}
-    <div className="wallet">
-      <img src="https://img.icons8.com/emoji/48/000000/coin-emoji.png" alt="coin" style={{ marginRight: '8px' }} />
-      {walletAmount} LKR
-    </div>
-
-    {/* Main Content Container */}
-    <div className="mainContent">
-      {/* Spin Wheel Section */}
-      <div className="wheelContainer">
-        <Wheel
-          mustStartSpinning={mustSpin}
-          prizeNumber={prizeNumber}
-          data={data}
-          onStopSpinning={handleSpinComplete}
-        />
-
-         {/* Display Timer */}
-      <div className="timer">
-        <h2>Time Remaining: {timeRemaining} seconds</h2>
-      </div>
-      
-      </div>
-      
-      {/* Betting Section */}
-      <div className="betting-container">
-        {/* First Row */}
-        <div className="betting-row">
-          <div className="bet-group">
-            <label htmlFor="bet-2" className="bet-label">Bet on 2:</label>
-            <input type="number" id="bet-2" className="bet-input" placeholder="Amount"  disabled={isBettingLocked}/>
-            <button className="bet-button bet-button-2" onClick={() => handleBet(2)} disabled={isBettingLocked}>Bet 2</button>
-          </div>
-          <div className="bet-group">
-            <label htmlFor="bet-4" className="bet-label">Bet on 4:</label>
-            <input type="number" id="bet-4" className="bet-input" placeholder="Amount"  disabled={isBettingLocked}/>
-            <button className="bet-button bet-button-4" onClick={() => handleBet(4)} disabled={isBettingLocked}>Bet 4</button>
-          </div>
-          <div className="bet-group">
-            <label htmlFor="bet-5" className="bet-label">Bet on 5:</label>
-            <input type="number" id="bet-5" className="bet-input" placeholder="Amount"  disabled={isBettingLocked}/>
-            <button className="bet-button bet-button-5"  onClick={() => handleBet(5)}  disabled={isBettingLocked}>Bet 5</button>
-          </div>
+    <div className="game-container">
+      <header className="game-header">
+        <div className="wallet">
+          <img src="https://img.icons8.com/emoji/48/000000/coin-emoji.png" alt="coin" />
+          <span>{walletAmount} LKR</span>
         </div>
-  
-        {/* Second Row */}
-        <div className="betting-row">
-          <div className="bet-group">
-            <label htmlFor="bet-7" className="bet-label">Bet on 7:</label>
-            <input type="number" id="bet-7" className="bet-input" placeholder="Amount"  disabled={isBettingLocked} />
-            <button className="bet-button bet-button-7" onClick={() => handleBet(7)} disabled={isBettingLocked}>Bet 7</button>
-          </div>
-          <div className="bet-group">
-            <label htmlFor="bet-10" className="bet-label">Bet on 10:</label>
-            <input type="number" id="bet-10" className="bet-input" placeholder="Amount"  disabled={isBettingLocked} />
-            <button className="bet-button bet-button-10"  onClick={() => handleBet(10)} disabled={isBettingLocked}>Bet 10</button>
-          </div>
-          <div className="bet-group">
-            <label htmlFor="bet-20" className="bet-label">Bet on 20:</label>
-            <input type="number" id="bet-20" className="bet-input" placeholder="Amount"  disabled={isBettingLocked}/>
-            <button className="bet-button bet-button-20"  onClick={() => handleBet(20)} disabled={isBettingLocked}>Bet 20</button>
-          </div>
-        </div>
+      </header>
 
-               {/* Right Side: Last 10 Winning Numbers */}
-               <div className="rightSection">
-          <h2>Last 10 Winning Numbers</h2>
-          <table className="winningNumbersTable">
-            <thead>
-              <tr>
-                <th>Round</th>
-                <th>Time</th>
-                <th>Multiplier</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lastWinningNumbers.map((round) => (
-                <tr key={round.round_number}>
-                  <td>{round.round_number}</td>
-                  <td>{new Date(round.updated_time).toLocaleTimeString()}</td>
-                  <td>{round.winning_multiplier}x</td>
+      <main className="game-content">
+        <section className="left-section">
+          <div className="wheel-container">
+            <Wheel
+              mustStartSpinning={mustSpin}
+              prizeNumber={prizeNumber}
+              data={data}
+              onStopSpinning={handleSpinComplete}
+            />
+            <div className="timer">
+              <h2>Time Remaining: {timeRemaining} seconds</h2>
+            </div>
+          </div>
+
+          <div className="betting-container">
+            {[2, 4, 5, 7, 10, 20].map((multiplier) => (
+              <div key={multiplier} className="bet-group">
+                <label htmlFor={`bet-${multiplier}`} className="bet-label">Bet on {multiplier}</label>
+                <input
+                  type="number"
+                  id={`bet-${multiplier}`}
+                  className="bet-input"
+                  placeholder="Amount"
+                  disabled={isBettingLocked}
+                />
+                <button
+                  className={`bet-button bet-button-${multiplier}`}
+                  onClick={() => handleBet(multiplier)}
+                  disabled={isBettingLocked}
+                >
+                  Bet {multiplier}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="right-section">
+          <div className="stats-container">
+            <h2>Last 10 Winning Numbers</h2>
+            <table className="winning-numbers-table">
+              <thead>
+                <tr>
+                  <th>Round</th>
+                  <th>Time</th>
+                  <th>Multiplier</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {lastWinningNumbers.map((round) => (
+                  <tr key={round.round_number}>
+                    <td>{round.round_number}</td>
+                    <td>{new Date(round.updated_time).toLocaleTimeString()}</td>
+                    <td>{round.winning_multiplier}x</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
 
-          <h2>Winning Percentages</h2>
-          <table className="percentagesTable">
-            <thead>
-              <tr>
-                <th>Multiplier</th>
-                <th>Percentage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(winningPercentages).map(([multiplier, percentage]) => (
-                <tr key={multiplier}>
-                  <td>{multiplier}x</td>
-                  <td>{percentage}%</td>
+            <h2>Winning Percentages</h2>
+            <table className="percentages-table">
+              <thead>
+                <tr>
+                  <th>Multiplier</th>
+                  <th>Percentage</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-      </div>
+              </thead>
+              <tbody>
+                {Object.entries(winningPercentages).map(([multiplier, percentage]) => (
+                  <tr key={multiplier}>
+                    <td>{multiplier}x</td>
+                    <td>{percentage}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
     </div>
-  </div>
-  
    
   );
 };
 
-const styles = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'linear-gradient(135deg, #1e3c72, #2a5298)',
-    minHeight: '100vh',
-    padding: '20px',
-    color: '#fff',
-    fontFamily: 'Arial, sans-serif',
-  },
-  wallet: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '1.8em',
-    marginBottom: '30px',
-    padding: '15px 20px',
-    background: '#ffffff22',
-    borderRadius: '20px',
-    boxShadow: '0px 4px 15px rgba(0, 0, 0, 0.2)',
-  },
-  mainContent: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    maxWidth: '900px',
-    width: '100%',
-    gap: '30px',
-  },
-  wheelContainer: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-  },
-  spinButton: {
-    marginTop: '20px',
-    padding: '12px 40px',
-    fontSize: '22px',
-    borderRadius: '30px',
-    background: 'linear-gradient(135deg, #ff416c, #ff4b2b)',
-    color: '#fff',
-    border: 'none',
-    cursor: 'pointer',
-    boxShadow: '0px 4px 15px rgba(0, 0, 0, 0.2)',
-    transition: 'transform 0.2s, background 0.3s',
-  },
-};
+
 
 
 
