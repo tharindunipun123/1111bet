@@ -34,7 +34,10 @@ const SpinWheel = () => {
   const [betAmount, setBetAmount] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState(60);
   const [isBettingEnabled, setIsBettingEnabled] = useState(true); 
-  const [currentRoundNumber, setCurrentRoundNumber] = useState(null);// To control betting during spin
+  const [currentRoundNumber, setCurrentRoundNumber] = useState(null);
+  const [lastWinningNumbers, setLastWinningNumbers] = useState([]);
+  const [winningPercentages, setWinningPercentages] = useState({});
+  const [isBettingLocked, setIsBettingLocked] = useState(false);// To control betting during spin
   const userId = localStorage.getItem('user_id');
 
 
@@ -46,18 +49,23 @@ const SpinWheel = () => {
     });
 
     // Listen for spin command from server
-    socket.on('spinWheel', ({ winningMultiplier }) => {
+    socket.on('spinWheel', ({ winningMultiplier,roundNumber }) => {
       const winningIndex = data.findIndex(item => item.option == winningMultiplier.toString());
       setPrizeNumber(winningIndex);
       setMustSpin(true);
+      setCurrentRoundNumber(roundNumber);
+      setIsBettingLocked(true);
+      console.log(roundNumber);
+
     });
 
     // Listen for new round
-    socket.on('newRound', ({ timeRemaining, roundId }) => {
+    socket.on('newRound', ({timeRemaining }) => {
       setTimeRemaining(timeRemaining);
       setMustSpin(false);
-      setCurrentRoundNumber(roundId); // Reset wheel spin state
+      setIsBettingLocked(false);
     });
+
 
     // Cleanup on unmount
     return () => {
@@ -67,15 +75,21 @@ const SpinWheel = () => {
     };
   }, []);
 
-
-
   useEffect(() => {
+    fetchWinningPercentages();
     fetchWallet();
    
     const interval = setInterval(fetchWallet, 1000); // Update time every second
 
     return () => clearInterval(interval); // Cleanup interval on unmount
   }, []);
+
+  const fetchWinningPercentages = () => {
+    fetch('http://localhost:3008/winning-percentages')
+      .then(response => response.json())
+      .then(data => setWinningPercentages(data))
+      .catch(error => console.error('Error fetching winning percentages:', error));
+  };
 
   // Fetch wallet balance
   const fetchWallet = () => {
@@ -91,17 +105,25 @@ const SpinWheel = () => {
         .then(response => response.json())
         .then(data => {
           if (data.message === 'win') {
-            swal('Congratulations!', `You won with multiplier ${data.multiplier}!`, 'success');
+            swal('Congratulations!', `You won! Your bet of ${data.betAmount} LKR on ${data.multiplier}x won you ${data.winAmount} LKR!`, 'success');
           } else if (data.message === 'loss') {
-            swal('Better luck next time!', `The winning multiplier was ${data.multiplier}.`, 'error');
+            swal('Better luck next time!', `The winning multiplier was ${data.multiplier}x.`, 'error');
           } else {
             swal('Info', data.message, 'info');
           }
+          fetchWallet(); // Update wallet after result
         })
         .catch(error => {
           console.error('Error checking bet result:', error);
           swal('Error', 'Could not check bet result. Please try again later.', 'error');
         });
+    };
+  
+    const fetchLastWinningNumbers = () => {
+      fetch('http://localhost:3008/last-10-winning-numbers')
+        .then(response => response.json())
+        .then(data => setLastWinningNumbers(data))
+        .catch(error => console.error('Error fetching last winning numbers:', error));
     };
 
   // Function to handle the spin action
@@ -119,14 +141,11 @@ const SpinWheel = () => {
   // Function to handle spin completion
   const handleSpinComplete = () => {
     setMustSpin(false);
-
+    setIsBettingLocked(false);
     // Check user's bet result after spin stops
     checkBetResult();
+    fetchLastWinningNumbers();
   };
-
-
-
-
 
   const handleBet = (multiplier) => {
     const betInput = document.getElementById(`bet-${multiplier}`);
@@ -176,7 +195,6 @@ const SpinWheel = () => {
     });
   };
 
-
   return (
     <div className="container">
     {/* Wallet Section */}
@@ -209,18 +227,18 @@ const SpinWheel = () => {
         <div className="betting-row">
           <div className="bet-group">
             <label htmlFor="bet-2" className="bet-label">Bet on 2:</label>
-            <input type="number" id="bet-2" className="bet-input" placeholder="Amount" />
-            <button className="bet-button bet-button-2" onClick={() => handleBet(2)}>Bet 2</button>
+            <input type="number" id="bet-2" className="bet-input" placeholder="Amount"  disabled={isBettingLocked}/>
+            <button className="bet-button bet-button-2" onClick={() => handleBet(2)} disabled={isBettingLocked}>Bet 2</button>
           </div>
           <div className="bet-group">
             <label htmlFor="bet-4" className="bet-label">Bet on 4:</label>
-            <input type="number" id="bet-4" className="bet-input" placeholder="Amount" />
-            <button className="bet-button bet-button-4" onClick={() => handleBet(4)}>Bet 4</button>
+            <input type="number" id="bet-4" className="bet-input" placeholder="Amount"  disabled={isBettingLocked}/>
+            <button className="bet-button bet-button-4" onClick={() => handleBet(4)} disabled={isBettingLocked}>Bet 4</button>
           </div>
           <div className="bet-group">
             <label htmlFor="bet-5" className="bet-label">Bet on 5:</label>
-            <input type="number" id="bet-5" className="bet-input" placeholder="Amount" />
-            <button className="bet-button bet-button-5"  onClick={() => handleBet(5)}>Bet 5</button>
+            <input type="number" id="bet-5" className="bet-input" placeholder="Amount"  disabled={isBettingLocked}/>
+            <button className="bet-button bet-button-5"  onClick={() => handleBet(5)}  disabled={isBettingLocked}>Bet 5</button>
           </div>
         </div>
   
@@ -228,20 +246,62 @@ const SpinWheel = () => {
         <div className="betting-row">
           <div className="bet-group">
             <label htmlFor="bet-7" className="bet-label">Bet on 7:</label>
-            <input type="number" id="bet-7" className="bet-input" placeholder="Amount" />
-            <button className="bet-button bet-button-7" onClick={() => handleBet(7)}>Bet 7</button>
+            <input type="number" id="bet-7" className="bet-input" placeholder="Amount"  disabled={isBettingLocked} />
+            <button className="bet-button bet-button-7" onClick={() => handleBet(7)} disabled={isBettingLocked}>Bet 7</button>
           </div>
           <div className="bet-group">
             <label htmlFor="bet-10" className="bet-label">Bet on 10:</label>
-            <input type="number" id="bet-10" className="bet-input" placeholder="Amount" />
-            <button className="bet-button bet-button-10"  onClick={() => handleBet(10)}>Bet 10</button>
+            <input type="number" id="bet-10" className="bet-input" placeholder="Amount"  disabled={isBettingLocked} />
+            <button className="bet-button bet-button-10"  onClick={() => handleBet(10)} disabled={isBettingLocked}>Bet 10</button>
           </div>
           <div className="bet-group">
             <label htmlFor="bet-20" className="bet-label">Bet on 20:</label>
-            <input type="number" id="bet-20" className="bet-input" placeholder="Amount" />
-            <button className="bet-button bet-button-20"  onClick={() => handleBet(20)}>Bet 20</button>
+            <input type="number" id="bet-20" className="bet-input" placeholder="Amount"  disabled={isBettingLocked}/>
+            <button className="bet-button bet-button-20"  onClick={() => handleBet(20)} disabled={isBettingLocked}>Bet 20</button>
           </div>
         </div>
+
+               {/* Right Side: Last 10 Winning Numbers */}
+               <div className="rightSection">
+          <h2>Last 10 Winning Numbers</h2>
+          <table className="winningNumbersTable">
+            <thead>
+              <tr>
+                <th>Round</th>
+                <th>Time</th>
+                <th>Multiplier</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lastWinningNumbers.map((round) => (
+                <tr key={round.round_number}>
+                  <td>{round.round_number}</td>
+                  <td>{new Date(round.updated_time).toLocaleTimeString()}</td>
+                  <td>{round.winning_multiplier}x</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <h2>Winning Percentages</h2>
+          <table className="percentagesTable">
+            <thead>
+              <tr>
+                <th>Multiplier</th>
+                <th>Percentage</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(winningPercentages).map(([multiplier, percentage]) => (
+                <tr key={multiplier}>
+                  <td>{multiplier}x</td>
+                  <td>{percentage}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
       </div>
     </div>
   </div>

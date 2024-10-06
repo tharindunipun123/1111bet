@@ -29,12 +29,6 @@ const db = mysql.createPool({
 });
 
 
-
-
-
-
-
-
 // Global variables
 let currentRoundId = 0;
 let currentRoundNumber = 1; // This variable keeps track of the current round number
@@ -47,7 +41,7 @@ const spinDuration = 12; // Spin duration is 12 seconds for animation
 async function startNewRound() {
   try {
     // Insert a new round into the rounds table with the round number and timestamp
-    const [result] = await db.query('INSERT INTO rounds (round, update_time) VALUES (?, NOW())', [currentRoundNumber]);
+    const [result] = await db.query('INSERT INTO rounds (round_number, updated_time) VALUES (?, NOW())', [currentRoundNumber]);
     currentRoundId = result.insertId;
     console.log(`New round started: ${currentRoundId}`);
     io.emit('newRound', { roundId: currentRoundId, roundNumber: currentRoundNumber, timeRemaining: 60 });
@@ -83,10 +77,14 @@ async function endRound() {
       // If no bets, choose from a limited set of multipliers
       winningMultiplier = [7, 10, 20][Math.floor(Math.random() * 3)];
     }
-     
-    const [result] = await db.query('INSERT INTO rounds (round, update_time, winning_multiplier) VALUES (?, NOW(), ?)', [currentRoundNumber, winningMultiplier]);
+
+    console.log(`Winning multiplier for round ${currentRoundNumber}: ${winningMultiplier}`);
+
+    // Update the current round with the winning multiplier
+    await db.query('UPDATE rounds SET winning_multiplier = ? WHERE round_number = ?', [winningMultiplier, currentRoundNumber]);
+
     // Emit to frontend that the wheel should start spinning
-    io.emit('spinWheel', { winningMultiplier });
+    io.emit('spinWheel', { winningMultiplier , roundNumber: currentRoundNumber});
 
     // Delay for the spin duration before calculating results
     setTimeout(async () => {
@@ -117,22 +115,6 @@ async function endRound() {
 
 // Start the first round when the server starts
 startNewRound();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -193,7 +175,6 @@ app.get('/wallet', async (req, res) => {
 
 app.post('/bet', async (req, res) => {
   const { userId, betAmount, multiplier } = req.body;
-  var round1 = 0;
   try {
     // Step 1: Get user wallet balance
     const [userRows] = await db.query('SELECT wallet FROM users WHERE id = ?', [userId]);
@@ -225,36 +206,47 @@ app.post('/bet', async (req, res) => {
 });
 
 
-
-// New endpoint to check if the user has won or lost
-app.get('/check-bet-result/:userId/:roundId', async (req, res) => {
-  const { userId, roundId } = req.params;
+app.get('/check-bet-result/:userId/:roundNumber', async (req, res) => {
+  const { userId, roundNumber } = req.params;
+  console.log(`Checking result for user ${userId} in round ${roundNumber}`);
 
   try {
-    // Fetch user's bet for the specified round
-    const [userBet] = await db.query('SELECT multiplier, amount FROM betting_results WHERE userId = ? AND round = ?', [userId, roundId]);
-    console.log(roundId);
-    // If the user has not placed a bet for that round, return no bet
-    if (!userBet) {
-      return res.json({ message: 'No bet placed for this round.' });
+    // Fetch all of the user's bets for the specified round
+    const [userBets] = await db.query('SELECT multiplier, amount FROM betting_results WHERE userId = ? AND round = ?', [userId, roundNumber]);
+    
+    // If the user has not placed any bets for that round, return no bet
+    if (userBets.length === 0) {
+      return res.json({ message: 'No bets placed for this round.' });
     }
 
     // Fetch the winning multiplier for the specified round
-    const [roundDetails] = await db.query('SELECT winning_multiplier FROM rounds WHERE id = ?', [roundId]);
+    const [roundDetails] = await db.query('SELECT winning_multiplier FROM rounds WHERE round_number = ?', [roundNumber]);
 
     // If round details are not found, return an error
-    if (!roundDetails) {
-      return res.status(404).json({ message: 'Round not found.' });
+    if (roundDetails.length === 0 || roundDetails[0].winning_multiplier === null) {
+      return res.status(404).json({ message: 'Round not found or result not available yet.' });
     }
 
-    const winningMultiplier = roundDetails.winning_multiplier;
-    const userMultiplier = userBet.multiplier;
+    const winningMultiplier = roundDetails[0].winning_multiplier;
 
-    // Determine if user won or lost
-    if (userMultiplier === winningMultiplier) {
-      return res.json({ message: 'win', multiplier: winningMultiplier });
+    // Check if any of the user's bets match the winning multiplier
+    const winningBet = userBets.find(bet => bet.multiplier === winningMultiplier);
+
+    if (winningBet) {
+      const winAmount = winningBet.amount * winningMultiplier;
+      return res.json({ 
+        message: 'win', 
+        multiplier: winningMultiplier,
+        betAmount: winningBet.amount,
+        winAmount: winAmount
+      });
     } else {
-      return res.json({ message: 'loss', multiplier: winningMultiplier });
+      const totalBetAmount = userBets.reduce((sum, bet) => sum + bet.amount, 0);
+      return res.json({ 
+        message: 'loss', 
+        multiplier: winningMultiplier,
+        totalBetAmount: totalBetAmount
+      });
     }
   } catch (error) {
     console.error('Error checking bet result:', error);
@@ -263,7 +255,59 @@ app.get('/check-bet-result/:userId/:roundId', async (req, res) => {
 });
 
 
+app.get('/last-10-winning-numbers', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT round_number, updated_time, winning_multiplier FROM rounds WHERE winning_multiplier IS NOT NULL ORDER BY round_number DESC LIMIT 10'
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching last 10 winning numbers:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
 
+
+// Endpoint to get winning percentages
+app.get('/winning-percentages', async (req, res) => {
+  try {
+    // Fetch actual winning counts
+    const [rows] = await db.query(
+      'SELECT winning_multiplier, COUNT(*) as count FROM rounds WHERE winning_multiplier IS NOT NULL GROUP BY winning_multiplier'
+    );
+
+    // Calculate total rounds
+    const totalRounds = rows.reduce((sum, row) => sum + row.count, 0);
+
+    // Calculate actual percentages
+    const actualPercentages = rows.reduce((acc, row) => {
+      acc[row.winning_multiplier] = (row.count / totalRounds) * 100;
+      return acc;
+    }, {});
+
+    // Define the possible multipliers
+    const multipliers = [2, 4, 5, 7, 10, 20];
+
+    // Function to adjust percentages
+    const adjustPercentage = (actual) => {
+      // Add some randomness, but keep it within +/- 2% of actual
+      const adjustment = (Math.random() * 4) - 2;
+      return Math.max(0.1, Math.min(30, actual + adjustment));
+    };
+
+    // Create adjusted percentages
+    const adjustedPercentages = multipliers.reduce((acc, multiplier) => {
+      const actual = actualPercentages[multiplier] || 0;
+      acc[multiplier] = adjustPercentage(actual).toFixed(1);
+      return acc;
+    }, {});
+
+    res.json(adjustedPercentages);
+  } catch (error) {
+    console.error('Error fetching winning percentages:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
 
 const PORT = process.env.PORT || 3008;
 server.listen(PORT, () => {
