@@ -200,3 +200,29 @@ body {
     grid-template-columns: 1fr;
   }
 }
+.grid-container { 
+  display: grid;
+  grid-template-columns: repeat(3, 1fr); /* 3 columns */
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.grid-item {
+  width: 80px; /* Set a fixed width */
+  height: 80px; /* Set a fixed height */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 18px; /* Adjust font size for smaller grid */
+  font-weight: bold;
+  color: white;
+  border-radius: 10px;
+  transition: all 0.3s ease;
+}
+
+.grid-item.winning {
+  transform: scale(1.1);
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.7);
+}
+
+

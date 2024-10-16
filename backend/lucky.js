@@ -32,7 +32,7 @@ const db = mysql.createPool({
 // Global variables
 let currentRoundId = 0;
 let currentRoundNumber = 1; // This variable keeps track of the current round number
-const multipliers = [2, 4, 5, 7, 10, 20];
+const multipliers = [1,2,3,4,5,6,7,8,9,10];
 let roundTimer;
 let timeRemaining = 60;
 const spinDuration = 12; // Spin duration is 12 seconds for animation
@@ -41,7 +41,7 @@ const spinDuration = 12; // Spin duration is 12 seconds for animation
 async function startNewRound() {
   try {
     // Insert a new round into the rounds table with the round number and timestamp
-    const [result] = await db.query('INSERT INTO rounds (round_number, updated_time) VALUES (?, NOW())', [currentRoundNumber]);
+    const [result] = await db.query('INSERT INTO lucky_rounds (round_number, updated_time) VALUES (?, NOW())', [currentRoundNumber]);
     currentRoundId = result.insertId;
     console.log(`New round started: ${currentRoundId}`);
     io.emit('newRound', { roundId: currentRoundId, roundNumber: currentRoundNumber, timeRemaining: 60 });
@@ -65,8 +65,8 @@ async function startNewRound() {
 async function endRound() {
   try {
     // Fetch all bets for the current round
-    const [bets] = await db.query('SELECT userId, multiplier, amount FROM betting_results WHERE round = ?', [currentRoundNumber]);
-    const [roundNumbers] = await db.query('SELECT round_number FROM manual_set ORDER BY id DESC LIMIT 1');
+    const [bets] = await db.query('SELECT userId, multiplier, amount FROM lucky_betting_results WHERE round = ?', [currentRoundNumber]);
+    const [roundNumbers] = await db.query('SELECT round_number FROM lucky_manual_set ORDER BY id DESC LIMIT 1');
 
     let winningMultiplier;
 
@@ -75,7 +75,7 @@ async function endRound() {
       winningMultiplier = roundNumbers[0].round_number;
     } else if (bets.length === 0) {
       // If no bets, choose from 7, 10, or 20
-      winningMultiplier = [7, 10, 20][Math.floor(Math.random() * 3)];
+      winningMultiplier = [6,7,8,9,10][Math.floor(Math.random() * 3)];
     } else {
       // New logic for determining winning multiplier when there are bets
       const bettedMultipliers = new Set(bets.map(bet => parseInt(bet.multiplier)));
@@ -89,7 +89,7 @@ async function endRound() {
         const payouts = multipliers.map(multiplier => {
           const totalPayout = bets
             .filter(bet => parseInt(bet.multiplier) === multiplier)
-            .reduce((sum, bet) => sum + parseFloat(bet.amount) * multiplier, 0);
+            .reduce((sum, bet) => sum + parseFloat(bet.amount) * 8, 0);
           return { multiplier, totalPayout };
         });
         winningMultiplier = payouts.reduce((min, current) => 
@@ -101,7 +101,7 @@ async function endRound() {
     console.log(`Winning multiplier for round ${currentRoundNumber}: ${winningMultiplier}`);
 
     // Update the current round with the winning multiplier
-    await db.query('UPDATE rounds SET winning_multiplier = ? WHERE round_number = ?', [winningMultiplier, currentRoundNumber]);
+    await db.query('UPDATE lucky_rounds SET winning_multiplier = ? WHERE round_number = ?', [winningMultiplier, currentRoundNumber]);
 
     // Emit to frontend that the wheel should start spinning
     io.emit('spinWheel', { winningMultiplier, roundNumber: currentRoundNumber });
@@ -112,11 +112,11 @@ async function endRound() {
 
       for (const bet of bets) {
         // Calculate winnings based on whether the user bet on the winning multiplier
-        const winAmount = parseInt(bet.multiplier) === winningMultiplier ? parseFloat(bet.amount) * winningMultiplier : 0;
+        const winAmount = parseInt(bet.multiplier) === winningMultiplier ? parseFloat(bet.amount) * 8 : 0;
         // Update user's wallet with the winnings
         if (winAmount > 0) {
           await db.query('UPDATE users SET wallet = wallet + ? WHERE id = ?', [winAmount, bet.userId]);
-          await db.query('INSERT INTO win_history (user_id, round_number, winning_multiplier, win_amount) VALUES (?, ?, ?, ?)', 
+          await db.query('INSERT INTO lucky_win_history (user_id, round_number, winning_multiplier, win_amount) VALUES (?, ?, ?, ?)', 
             [bet.userId, currentRoundNumber, winningMultiplier, winAmount]);
         }
         results.push({ userId: bet.userId, betAmount: parseFloat(bet.amount), winAmount });
@@ -215,7 +215,7 @@ app.post('/bet', async (req, res) => {
 
     // Step 3: Record the bet in betting_results table
     await db.query(
-      'INSERT INTO betting_results (userId, round, multiplier, amount) VALUES (?, ?, ?, ?)',
+      'INSERT INTO lucky_betting_results (userId, round, multiplier, amount) VALUES (?, ?, ?, ?)',
       [userId, currentRoundNumber, multiplier, betAmount]
     );
 
@@ -234,15 +234,15 @@ app.get('/check-bet-result/:userId/:roundNumber', async (req, res) => {
 
   try {
     // Fetch all of the user's bets for the specified round
-    const [userBets] = await db.query('SELECT multiplier, amount FROM betting_results WHERE userId = ? AND round = ?', [userId, roundNumber]);
+    const [userBets] = await db.query('SELECT multiplier, amount FROM lucky_betting_results WHERE userId = ? AND round = ?', [userId, roundNumber]);
     
     // If the user has not placed any bets for that round, return no bet
     if (userBets.length === 0) {
       return res.json({ message: 'No bets placed for this round.' });
     }
-
+    
     // Fetch the winning multiplier for the specified round
-    const [roundDetails] = await db.query('SELECT winning_multiplier FROM rounds WHERE round_number = ?', [roundNumber]);
+    const [roundDetails] = await db.query('SELECT winning_multiplier FROM lucky_rounds WHERE round_number = ?', [roundNumber]);
 
     // If round details are not found, return an error
     if (roundDetails.length === 0 || roundDetails[0].winning_multiplier === null) {
@@ -255,7 +255,7 @@ app.get('/check-bet-result/:userId/:roundNumber', async (req, res) => {
     const winningBet = userBets.find(bet => bet.multiplier === winningMultiplier);
 
     if (winningBet) {
-      const winAmount = winningBet.amount * winningMultiplier;
+      const winAmount = winningBet.amount * 8;
       return res.json({ 
         message: 'win', 
         multiplier: winningMultiplier,
@@ -280,7 +280,7 @@ app.get('/check-bet-result/:userId/:roundNumber', async (req, res) => {
 app.get('/last-10-winning-numbers', async (req, res) => {
   try {
     const [rows] = await db.query(
-      'SELECT round_number, updated_time, winning_multiplier FROM rounds WHERE winning_multiplier IS NOT NULL ORDER BY round_number DESC LIMIT 10'
+      'SELECT round_number, updated_time, winning_multiplier FROM lucky_rounds WHERE winning_multiplier IS NOT NULL ORDER BY round_number DESC LIMIT 10'
     );
     res.json(rows);
   } catch (error) {
@@ -295,7 +295,7 @@ app.get('/winning-percentages', async (req, res) => {
   try {
     // Fetch actual winning counts
     const [rows] = await db.query(
-      'SELECT winning_multiplier, COUNT(*) as count FROM rounds WHERE winning_multiplier IS NOT NULL GROUP BY winning_multiplier'
+      'SELECT winning_multiplier, COUNT(*) as count FROM lucky_rounds WHERE winning_multiplier IS NOT NULL GROUP BY winning_multiplier'
     );
 
     // Calculate total rounds
@@ -308,7 +308,7 @@ app.get('/winning-percentages', async (req, res) => {
     }, {});
 
     // Define the possible multipliers
-    const multipliers = [2, 4, 5, 7, 10, 20];
+    const multipliers = [1,2,3,4,5,6,7,8,9,10];
 
     // Function to adjust percentages
     const adjustPercentage = (actual) => {

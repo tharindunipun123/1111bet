@@ -7,6 +7,8 @@ import HomePage from './components/HomePage'
 import SpinWheel from './SpinWheel'
 import Register from './components/Register';
 import Login from './components/loginCmp';
+import LuckyNumber from './luckynumber';
+import CricketBetting from './cricketbet';
 
 
 function App() {
@@ -18,6 +20,8 @@ function App() {
     <Route path="/home" element={<HomePage/>}> </Route>
     <Route path="/spinwheel" element={<SpinWheel />} />
     <Route path="/register" element={<Register />} />
+    <Route path="/lucky" element={<LuckyNumber />} />
+    <Route path="/cricket" element={<CricketBetting />} />
     </Routes>
     </BrowserRouter>
   )

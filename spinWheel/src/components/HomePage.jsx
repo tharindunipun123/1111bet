@@ -8,6 +8,12 @@ function HomePage() {
   const handleNavigate = () => {
     navigate('/spinwheel'); // Navigate to the SpinWheel game route
   };
+  const handleNavigate1 = () => {
+    navigate('/lucky'); // Navigate to the SpinWheel game route
+  };
+  const handleNavigate2 = () => {
+    navigate('/cricket'); // Navigate to the SpinWheel game route
+  };
 
 
   return (
@@ -18,7 +24,7 @@ function HomePage() {
           <img src="" alt="Logo" className="logo-image" />
         </div>
         <nav className="nav">
-          <a href="#benefits">Play Live Games</a>
+          <a href="http://localhost:5173/cricket">Play Live Games</a>
           <a href="#about">About Us</a>
           <a href="#shop">Wallet</a>
           <button className="play-now">Account</button>
@@ -50,13 +56,13 @@ function HomePage() {
       />
       <p>Spin Wheeel Game </p>
     </div>
-    <div className="card">
+    <div className="card" onClick={handleNavigate1}>
       <img
         src="https://th.bing.com/th/id/OIP.JMBZpnj_nyzacT-HPyKzegAAAA?w=338&h=338&rs=1&pid=ImgDetMain"
         alt="Benefit 2"
         className="card-image"
       />
-      <p>Benefit 2 Description</p>
+      <p>Lucky Number Game</p>
     </div>
     <div className="card">
       <img
