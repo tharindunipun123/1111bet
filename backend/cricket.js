@@ -40,7 +40,12 @@ io.on('connection', (socket) => {
 // Get all matches
 app.get('/matches', async (req, res) => {
   try {
-    const [rows] = await db.query('SELECT * FROM cricket_matches ORDER BY match_time DESC');
+    const [rows] = await db.query(`
+      SELECT id, team1, team2, match_time, status, result, is_locked, 
+             team1_win_multiplier, team2_win_multiplier, draw_multiplier
+      FROM cricket_matches 
+      ORDER BY match_time DESC
+    `);
     res.json(rows);
   } catch (error) {
     console.error('Error fetching matches:', error);
@@ -54,14 +59,23 @@ app.post('/place-bet', async (req, res) => {
   
   try {
     // Check if the match is locked
-    const [matchRows] = await db.query('SELECT is_locked, ?? as multiplier FROM cricket_matches WHERE id = ?', 
-      [`${betType}_multiplier`, matchId]);
+    const [matchRows] = await db.query(`
+      SELECT is_locked, team1, team2, ?? as multiplier 
+      FROM cricket_matches 
+      WHERE id = ?
+    `, [betType + '_multiplier', matchId]);
     
     if (matchRows.length === 0 || matchRows[0].is_locked) {
       return res.status(400).json({ message: 'Betting is not allowed for this match' });
     }
 
     const multiplier = matchRows[0].multiplier;
+
+    // Check if user has already placed a bet for this match
+    const [existingBet] = await db.query('SELECT * FROM cricket_bets WHERE user_id = ? AND match_id = ?', [userId, matchId]);
+    if (existingBet.length > 0) {
+      return res.status(400).json({ message: 'You have already placed a bet for this match' });
+    }
 
     // Check user's wallet balance
     const [userRows] = await db.query('SELECT wallet FROM users WHERE id = ?', [userId]);
@@ -91,20 +105,113 @@ app.post('/place-bet', async (req, res) => {
 });
 
 app.get('/wallet', async (req, res) => {
-    const { user_id } = req.query;
-    try {
-      const [users] = await db.query('SELECT wallet FROM users WHERE id = ?', [user_id]);
-      if (users.length === 0) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-      res.json({ wallet: users[0].wallet });
-    } catch (error) {
-      console.error('Error fetching wallet balance:', error);
-      res.status(500).json({ message: 'Error fetching wallet balance' });
+  const { user_id } = req.query;
+  try {
+    const [users] = await db.query('SELECT wallet FROM users WHERE id = ?', [user_id]);
+    if (users.length === 0) {
+      return res.status(404).json({ message: 'User not found' });
     }
-  });
+    res.json({ wallet: users[0].wallet });
+  } catch (error) {
+    console.error('Error fetching wallet balance:', error);
+    res.status(500).json({ message: 'Error fetching wallet balance' });
+  }
+});
 
-// More endpoints for user management, fetching bet history, etc.
+app.get('/bet-history', async (req, res) => {
+  const { user_id } = req.query;
+  try {
+    const [bets] = await db.query(`
+      SELECT cb.*, cm.team1, cm.team2, cm.match_time
+      FROM cricket_bets cb
+      JOIN cricket_matches cm ON cb.match_id = cm.id
+      WHERE cb.user_id = ?
+      ORDER BY cm.match_time DESC
+    `, [user_id]);
+    
+    const betHistory = bets.map(bet => ({
+      id: bet.id,
+      match_details: `${bet.team1} vs ${bet.team2} (${new Date(bet.match_time).toLocaleString()})`,
+      bet_type: bet.bet_type,
+      amount: bet.amount,
+      status: bet.status,
+      winnings: bet.winnings || 0
+    }));
+
+    res.json(betHistory);
+  } catch (error) {
+    console.error('Error fetching bet history:', error);
+    res.status(500).json({ message: 'Error fetching bet history' });
+  }
+});
+
+// Admin: End match and process bets
+app.post('/end-match', async (req, res) => {
+  const { matchId, result } = req.body;
+
+  try {
+    await db.query('START TRANSACTION');
+
+    // Update match status
+    await db.query('UPDATE cricket_matches SET status = "completed", result = ? WHERE id = ?', [result, matchId]);
+
+    // Get all bets for this match
+    const [bets] = await db.query('SELECT * FROM cricket_bets WHERE match_id = ?', [matchId]);
+
+    for (const bet of bets) {
+      if (bet.bet_type === result) {
+        const winnings = bet.amount * bet.multiplier;
+        await db.query('UPDATE users SET wallet = wallet + ? WHERE id = ?', [winnings, bet.user_id]);
+        await db.query('UPDATE cricket_bets SET status = "won", winnings = ? WHERE id = ?', [winnings, bet.id]);
+      } else {
+        await db.query('UPDATE cricket_bets SET status = "lost" WHERE id = ?', [bet.id]);
+      }
+    }
+
+    await db.query('COMMIT');
+
+    // Notify clients about the match end
+    io.emit('matchEnded', { matchId, result });
+
+    res.json({ message: 'Match ended and bets processed successfully' });
+  } catch (error) {
+    await db.query('ROLLBACK');
+    console.error('Error ending match:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Admin: Lock/Unlock match
+app.post('/toggle-match-lock', async (req, res) => {
+  const { matchId, isLocked } = req.body;
+
+  try {
+    await db.query('UPDATE cricket_matches SET is_locked = ? WHERE id = ?', [isLocked, matchId]);
+    
+    // Fetch updated match data
+    const [updatedMatch] = await db.query(`
+      SELECT id, team1, team2, match_time, status, result, is_locked, 
+             team1_win_multiplier, team2_win_multiplier, draw_multiplier
+      FROM cricket_matches 
+      WHERE id = ?
+    `, [matchId]);
+    
+    // Notify clients about the match update
+    io.emit('matchUpdate', updatedMatch[0]);
+
+    res.json({ message: `Match ${isLocked ? 'locked' : 'unlocked'} successfully` });
+  } catch (error) {
+    console.error('Error toggling match lock:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Notify endpoint for PHP admin panel
+app.post('/notify', (req, res) => {
+  const { event, data } = req.body;
+  io.emit(event, data);
+  res.json({ message: 'Notification sent successfully' });
+});
 
 const PORT = process.env.PORT || 3008;
 server.listen(PORT, () => {

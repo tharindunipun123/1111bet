@@ -12,25 +12,44 @@ const CricketBetting = () => {
   const [betType, setBetType] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [betHistory, setBetHistory] = useState([]);
 
   const userId = 1; // Replace with actual user ID or fetch from authentication context
 
   useEffect(() => {
     fetchMatches();
     fetchWalletBalance();
+    fetchBetHistory();
 
-    socket.on('matchUpdate', (updatedMatch) => {
-      setMatches(prevMatches => 
-        prevMatches.map(match => 
-          match.id === updatedMatch.id ? updatedMatch : match
-        )
-      );
-    });
+    socket.on('matchUpdate', handleMatchUpdate);
+    socket.on('matchEnded', handleMatchEnded);
 
     return () => {
-      socket.off('matchUpdate');
+      socket.off('matchUpdate', handleMatchUpdate);
+      socket.off('matchEnded', handleMatchEnded);
     };
   }, []);
+
+  const handleMatchUpdate = (updatedMatch) => {
+    setMatches(prevMatches => 
+      prevMatches.map(match => 
+        match.id === updatedMatch.id ? updatedMatch : match
+      )
+    );
+    if (selectedMatch && selectedMatch.id === updatedMatch.id) {
+      setSelectedMatch(updatedMatch);
+    }
+  };
+
+  const handleMatchEnded = ({ matchId, result }) => {
+    setMatches(prevMatches => 
+      prevMatches.map(match => 
+        match.id === matchId ? { ...match, status: 'completed', result } : match
+      )
+    );
+    fetchWalletBalance();
+    fetchBetHistory();
+  };
 
   const fetchMatches = async () => {
     setLoading(true);
@@ -52,13 +71,24 @@ const CricketBetting = () => {
       const response = await fetch(`http://localhost:3008/wallet?user_id=${userId}`);
       if (!response.ok) throw new Error('Failed to fetch wallet balance');
       const data = await response.json();
-      // Ensure the wallet balance is a number
       const balance = parseFloat(data.wallet);
       setWalletBalance(isNaN(balance) ? 0 : balance);
     } catch (error) {
       console.error('Error fetching wallet:', error);
       setError('Failed to load wallet balance. Please try again later.');
       setWalletBalance(0);
+    }
+  };
+
+  const fetchBetHistory = async () => {
+    try {
+      const response = await fetch(`http://localhost:3008/bet-history?user_id=${userId}`);
+      if (!response.ok) throw new Error('Failed to fetch bet history');
+      const data = await response.json();
+      setBetHistory(data);
+    } catch (error) {
+      console.error('Error fetching bet history:', error);
+      setError('Failed to load bet history. Please try again later.');
     }
   };
 
@@ -84,10 +114,26 @@ const CricketBetting = () => {
 
       alert('Bet placed successfully!');
       fetchWalletBalance();
+      fetchBetHistory();
       setBetAmount('');
       setBetType('');
     } catch (error) {
       alert('Error placing bet: ' + error.message);
+    }
+  };
+
+  const getBetOptions = (match) => [
+    { value: `team1_win`, label: `${match.team1} Win`, multiplier: match.team1_win_multiplier },
+    { value: `team2_win`, label: `${match.team2} Win`, multiplier: match.team2_win_multiplier },
+    { value: 'draw', label: 'Draw', multiplier: match.draw_multiplier }
+  ];
+
+  const formatBetType = (betType, match) => {
+    switch(betType) {
+      case 'team1_win': return `${match.team1} Win`;
+      case 'team2_win': return `${match.team2} Win`;
+      case 'draw': return 'Draw';
+      default: return betType;
     }
   };
 
@@ -115,11 +161,16 @@ const CricketBetting = () => {
               <h3>{match.team1} vs {match.team2}</h3>
               <p>Time: {new Date(match.match_time).toLocaleString()}</p>
               <p className={styles.matchStatus}>Status: {match.status}</p>
+              {match.status === 'completed' && (
+                <p className={styles.matchResult}>
+                  Result: {formatBetType(match.result, match)}
+                </p>
+              )}
             </div>
           ))}
         </section>
         
-        {selectedMatch && (
+        {selectedMatch && selectedMatch.status !== 'completed' && !selectedMatch.is_locked && (
           <section className={styles.bettingForm}>
             <h2>Place Bet: {selectedMatch.team1} vs {selectedMatch.team2}</h2>
             <select 
@@ -128,9 +179,11 @@ const CricketBetting = () => {
               className={styles.select}
             >
               <option value="">Select Bet Type</option>
-              <option value="win">Win</option>
-              <option value="loss">Loss</option>
-              <option value="draw">Draw</option>
+              {getBetOptions(selectedMatch).map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label} (x{option.multiplier})
+                </option>
+              ))}
             </select>
             <input 
               type="number" 
@@ -148,6 +201,19 @@ const CricketBetting = () => {
             </button>
           </section>
         )}
+
+        <section className={styles.betHistory}>
+          <h2>Bet History</h2>
+          {betHistory.map(bet => (
+            <div key={bet.id} className={styles.betItem}>
+              <p>{bet.match_details}</p>
+              <p>Bet Type: {formatBetType(bet.bet_type, {team1: bet.match_details.split(' vs ')[0], team2: bet.match_details.split(' vs ')[1].split(' (')[0]})}</p>
+              <p>Amount: ${bet.amount}</p>
+              <p>Status: {bet.status}</p>
+              {bet.status === 'won' && <p>Winnings: ${bet.winnings}</p>}
+            </div>
+          ))}
+        </section>
       </main>
     </div>
   );
