@@ -42,7 +42,11 @@ app.get('/matches', async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT id, team1, team2, match_time, status, result, is_locked, 
-             team1_win_multiplier, team2_win_multiplier, draw_multiplier
+             team1_win_multiplier, team2_win_multiplier, draw_multiplier,
+             full_target_multiplier_yes, full_target_multiplier_no,
+             six_over_target_multiplier_yes, six_over_target_multiplier_no,
+             full_target_locked, six_over_target_locked,
+             full_target_result, six_over_target_result
       FROM cricket_matches 
       ORDER BY match_time DESC
     `);
@@ -58,24 +62,45 @@ app.post('/place-bet', async (req, res) => {
   const { userId, matchId, betType, amount } = req.body;
   
   try {
-    // Check if the match is locked
+    // Get match details and check locks
     const [matchRows] = await db.query(`
-      SELECT is_locked, team1, team2, ?? as multiplier 
+      SELECT 
+        is_locked, 
+        full_target_locked,
+        six_over_target_locked,
+        team1, team2,
+        CASE
+          WHEN ? IN ('team1_win', 'team2_win', 'draw') THEN CONCAT(?, '_multiplier')
+          WHEN ? IN ('full_target_yes', 'full_target_no') THEN CONCAT('full_target_multiplier_', SUBSTRING(?, 12))
+          WHEN ? IN ('six_over_target_yes', 'six_over_target_no') THEN CONCAT('six_over_target_multiplier_', SUBSTRING(?, 16))
+        END as multiplier_col
       FROM cricket_matches 
       WHERE id = ?
-    `, [betType + '_multiplier', matchId]);
+    `, [betType, betType, betType, betType, betType, betType, matchId]);
     
-    if (matchRows.length === 0 || matchRows[0].is_locked) {
-      return res.status(400).json({ message: 'Betting is not allowed for this match' });
+    if (matchRows.length === 0) {
+      return res.status(400).json({ message: 'Match not found' });
     }
 
-    const multiplier = matchRows[0].multiplier;
+    const match = matchRows[0];
 
-    // Check if user has already placed a bet for this match
-    const [existingBet] = await db.query('SELECT * FROM cricket_bets WHERE user_id = ? AND match_id = ?', [userId, matchId]);
-    if (existingBet.length > 0) {
-      return res.status(400).json({ message: 'You have already placed a bet for this match' });
+    // Check if betting is locked for the specific bet type
+    if ((betType.includes('team') || betType === 'draw') && match.is_locked) {
+      return res.status(400).json({ message: 'Match betting is locked' });
     }
+    if (betType.includes('full_target') && match.full_target_locked) {
+      return res.status(400).json({ message: 'Full target betting is locked' });
+    }
+    if (betType.includes('six_over_target') && match.six_over_target_locked) {
+      return res.status(400).json({ message: 'Six over target betting is locked' });
+    }
+
+    // Get the multiplier value
+    const [multiplierResult] = await db.query(
+      `SELECT ${match.multiplier_col} as multiplier FROM cricket_matches WHERE id = ?`,
+      [matchId]
+    );
+    const multiplier = multiplierResult[0].multiplier;
 
     // Check user's wallet balance
     const [userRows] = await db.query('SELECT wallet FROM users WHERE id = ?', [userId]);
@@ -122,7 +147,8 @@ app.get('/bet-history', async (req, res) => {
   const { user_id } = req.query;
   try {
     const [bets] = await db.query(`
-      SELECT cb.*, cm.team1, cm.team2, cm.match_time
+      SELECT cb.*, cm.team1, cm.team2, cm.match_time, 
+             cm.full_target_result, cm.six_over_target_result
       FROM cricket_bets cb
       JOIN cricket_matches cm ON cb.match_id = cm.id
       WHERE cb.user_id = ?
@@ -135,7 +161,9 @@ app.get('/bet-history', async (req, res) => {
       bet_type: bet.bet_type,
       amount: bet.amount,
       status: bet.status,
-      winnings: bet.winnings || 0
+      winnings: bet.winnings || 0,
+      full_target_result: bet.full_target_result,
+      six_over_target_result: bet.six_over_target_result
     }));
 
     res.json(betHistory);
@@ -147,19 +175,39 @@ app.get('/bet-history', async (req, res) => {
 
 // Admin: End match and process bets
 app.post('/end-match', async (req, res) => {
-  const { matchId, result } = req.body;
+  const { matchId, result, fullTargetResult, sixOverTargetResult } = req.body;
 
   try {
     await db.query('START TRANSACTION');
 
-    // Update match status
-    await db.query('UPDATE cricket_matches SET status = "completed", result = ? WHERE id = ?', [result, matchId]);
+    // Update match status and results
+    await db.query(`
+      UPDATE cricket_matches 
+      SET status = "completed", 
+          result = ?,
+          full_target_result = ?,
+          six_over_target_result = ?
+      WHERE id = ?
+    `, [result, fullTargetResult, sixOverTargetResult, matchId]);
 
     // Get all bets for this match
     const [bets] = await db.query('SELECT * FROM cricket_bets WHERE match_id = ?', [matchId]);
 
     for (const bet of bets) {
-      if (bet.bet_type === result) {
+      let isWinner = false;
+
+      // Determine if bet is winner based on bet type
+      if (bet.bet_type.includes('team') || bet.bet_type === 'draw') {
+        isWinner = bet.bet_type === result;
+      } else if (bet.bet_type.includes('full_target')) {
+        isWinner = (bet.bet_type === 'full_target_yes' && fullTargetResult === 'yes') ||
+                  (bet.bet_type === 'full_target_no' && fullTargetResult === 'no');
+      } else if (bet.bet_type.includes('six_over_target')) {
+        isWinner = (bet.bet_type === 'six_over_target_yes' && sixOverTargetResult === 'yes') ||
+                  (bet.bet_type === 'six_over_target_no' && sixOverTargetResult === 'no');
+      }
+
+      if (isWinner) {
         const winnings = bet.amount * bet.multiplier;
         await db.query('UPDATE users SET wallet = wallet + ? WHERE id = ?', [winnings, bet.user_id]);
         await db.query('UPDATE cricket_bets SET status = "won", winnings = ? WHERE id = ?', [winnings, bet.id]);
@@ -171,7 +219,12 @@ app.post('/end-match', async (req, res) => {
     await db.query('COMMIT');
 
     // Notify clients about the match end
-    io.emit('matchEnded', { matchId, result });
+    io.emit('matchEnded', { 
+      matchId, 
+      result,
+      fullTargetResult,
+      sixOverTargetResult 
+    });
 
     res.json({ message: 'Match ended and bets processed successfully' });
   } catch (error) {
@@ -181,36 +234,89 @@ app.post('/end-match', async (req, res) => {
   }
 });
 
-// Admin: Lock/Unlock match
-app.post('/toggle-match-lock', async (req, res) => {
-  const { matchId, isLocked } = req.body;
+// Admin: Lock/Unlock betting options
+app.post('/toggle-lock', async (req, res) => {
+  const { matchId, lockType, isLocked } = req.body;
 
   try {
-    await db.query('UPDATE cricket_matches SET is_locked = ? WHERE id = ?', [isLocked, matchId]);
+    let updateQuery;
+    switch (lockType) {
+      case 'match':
+        updateQuery = 'UPDATE cricket_matches SET is_locked = ? WHERE id = ?';
+        break;
+      case 'full_target':
+        updateQuery = 'UPDATE cricket_matches SET full_target_locked = ? WHERE id = ?';
+        break;
+      case 'six_over_target':
+        updateQuery = 'UPDATE cricket_matches SET six_over_target_locked = ? WHERE id = ?';
+        break;
+      default:
+        return res.status(400).json({ message: 'Invalid lock type' });
+    }
+
+    await db.query(updateQuery, [isLocked, matchId]);
     
     // Fetch updated match data
     const [updatedMatch] = await db.query(`
-      SELECT id, team1, team2, match_time, status, result, is_locked, 
-             team1_win_multiplier, team2_win_multiplier, draw_multiplier
-      FROM cricket_matches 
-      WHERE id = ?
+      SELECT * FROM cricket_matches WHERE id = ?
     `, [matchId]);
     
     // Notify clients about the match update
     io.emit('matchUpdate', updatedMatch[0]);
 
-    res.json({ message: `Match ${isLocked ? 'locked' : 'unlocked'} successfully` });
+    res.json({ message: `${lockType} ${isLocked ? 'locked' : 'unlocked'} successfully` });
   } catch (error) {
-    console.error('Error toggling match lock:', error);
+    console.error('Error toggling lock:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-// Notify endpoint for PHP admin panel
-app.post('/notify', (req, res) => {
-  const { event, data } = req.body;
-  io.emit(event, data);
-  res.json({ message: 'Notification sent successfully' });
+// Admin: Update multipliers
+app.post('/update-multipliers', async (req, res) => {
+  const { 
+    matchId, 
+    team1Multiplier,
+    team2Multiplier,
+    drawMultiplier,
+    fullTargetYesMultiplier,
+    fullTargetNoMultiplier,
+    sixOverTargetYesMultiplier,
+    sixOverTargetNoMultiplier
+  } = req.body;
+
+  try {
+    await db.query(`
+      UPDATE cricket_matches 
+      SET team1_win_multiplier = ?,
+          team2_win_multiplier = ?,
+          draw_multiplier = ?,
+          full_target_multiplier_yes = ?,
+          full_target_multiplier_no = ?,
+          six_over_target_multiplier_yes = ?,
+          six_over_target_multiplier_no = ?
+      WHERE id = ?
+    `, [
+      team1Multiplier,
+      team2Multiplier,
+      drawMultiplier,
+      fullTargetYesMultiplier,
+      fullTargetNoMultiplier,
+      sixOverTargetYesMultiplier,
+      sixOverTargetNoMultiplier,
+      matchId
+    ]);
+
+    // Fetch updated match data
+    const [updatedMatch] = await db.query(`SELECT * FROM cricket_matches WHERE id = ?`, [matchId]);
+    
+    // Notify clients about the match update
+    io.emit('matchUpdate', updatedMatch[0]);
+
+    res.json({ message: 'Multipliers updated successfully' });
+  } catch (error) {
+    console.error('Error updating multipliers:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
 });
 
 const PORT = process.env.PORT || 3008;
