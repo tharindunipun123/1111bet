@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import swal from 'sweetalert';
 import io from 'socket.io-client';
-import './spinWheel.css';
+import './lucky.css';
 
 const socket = io('http://localhost:3008');
 
@@ -85,7 +85,7 @@ const LuckyNumber = () => {
         if (data.message === 'win') {
           swal('Congratulations!', `You won! Your bet of ${data.betAmount} LKR on ${data.multiplier} won you ${data.winAmount} LKR!`, 'success');
         } else if (data.message === 'loss') {
-          swal('Better luck next time!', `The winning multiplier was ${data.multiplier}x. You lost ${data.totalBetAmount} LKR.`, 'error');
+          swal('Better luck next time!', `The winning multiplier was ${data.multiplier}x. You lost.`, 'error');
         } else {
           swal('Info', data.message, 'info');
         }

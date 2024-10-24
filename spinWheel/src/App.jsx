@@ -9,6 +9,8 @@ import Register from './components/Register';
 import Login from './components/loginCmp';
 import LuckyNumber from './luckynumber';
 import CricketBetting from './cricketbet';
+import DiceRoller from './dice';
+
 
 
 function App() {
@@ -17,11 +19,13 @@ function App() {
      <BrowserRouter >
     <Routes>
     <Route path="/" element={<Login/>}> </Route>
+    <Route path="/login" element={<Login/>}> </Route>
     <Route path="/home" element={<HomePage/>}> </Route>
     <Route path="/spinwheel" element={<SpinWheel />} />
     <Route path="/register" element={<Register />} />
     <Route path="/lucky" element={<LuckyNumber />} />
     <Route path="/cricket" element={<CricketBetting />} />
+    <Route path="/dice" element={<DiceRoller />} />
     </Routes>
     </BrowserRouter>
   )

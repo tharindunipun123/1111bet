@@ -331,6 +331,75 @@ app.get('/winning-percentages', async (req, res) => {
   }
 });
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+// dice game ednpoints
+app.post('/dicebet', async (req, res) => {
+  const { userId, totalBet} = req.body;
+  try {
+    // Step 1: Get user wallet balance
+    const [userRows] = await db.query('SELECT wallet FROM users WHERE id = ?', [userId]);
+    if (userRows.length === 0) return res.status(404).json({ message: 'User not found' });
+
+    const userWallet = userRows[0].wallet;
+
+    // Check if wallet has enough balance
+    if (userWallet < betAmount) {
+      return res.status(400).json({ message: 'Insufficient wallet balance' });
+    }
+
+    // Step 2: Deduct the bet amount from the user's wallet
+    const newWalletBalance = userWallet - totalBet;
+    await db.query('UPDATE users SET wallet = ? WHERE id = ?', [newWalletBalance, userId]);
+
+    // Step 3: Record the bet in betting_results table
+    await db.query(
+      'INSERT INTO betting_results (userId, round, multiplier, amount) VALUES (?, ?, ?, ?)',
+      [userId, currentRoundNumber, multiplier, betAmount]
+    );
+
+    // Step 4: Return the response
+    res.status(200).json({ message: 'Bet placed successfully', newWalletBalance });
+  } catch (error) {
+    console.error('Error placing bet:', error);
+    res.status(500).json({ message: 'An error occurred while placing the bet' });
+  }
+});
+
+app.post('/dicewin', async (req, res) => {
+  const { userId, winnings } = req.body;
+  try {
+    // Step 1: Get user wallet balance
+    const [userRows] = await db.query('SELECT wallet FROM users WHERE id = ?', [userId]);
+    if (userRows.length === 0) return res.status(404).json({ message: 'User not found' });
+
+    const userWallet = userRows[0].wallet;
+
+  
+    // Step 2: Deduct the bet amount from the user's wallet
+    const newWalletBalance = userWallet + winnings;
+    await db.query('UPDATE users SET wallet = ? WHERE id = ?', [newWalletBalance, userId]);
+
+    // Step 4: Return the response
+    res.status(200).json({ message: 'Record placed successfully', newWalletBalance });
+  } catch (error) {
+    console.error('Error placing bet:', error);
+    res.status(500).json({ message: 'An error occurred while updating the wallet' });
+  }
+});
+
+
 const PORT = process.env.PORT || 3008;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

@@ -1,4 +1,5 @@
 import React, { useState,useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Wheel } from 'react-custom-roulette';
 import swal from 'sweetalert';
 import io from 'socket.io-client';
@@ -40,7 +41,15 @@ const SpinWheel = () => {
   const [isBettingLocked, setIsBettingLocked] = useState(false);// To control betting during spin
   const userId = localStorage.getItem('user_id');
 
-
+  const navigate = useNavigate();
+  
+  // Add this useEffect at the top of your component
+  useEffect(() => {
+    const userId = localStorage.getItem('user_id');
+    if (!userId) {
+      navigate('/login');
+    }
+  }, [navigate]);
 
   useEffect(() => {
     // Listen for time updates from server
