@@ -334,16 +334,6 @@ app.get('/winning-percentages', async (req, res) => {
 
 
 
-
-
-
-
-
-
-
-
-
-
 // dice game ednpoints
 app.post('/dicebet', async (req, res) => {
   const { userId, totalBet} = req.body;
